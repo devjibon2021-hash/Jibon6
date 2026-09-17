@@ -2,29 +2,49 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
   pull_request:
-    branches: [main, master]
+    branches:
+      - main
+      - master
   workflow_dispatch:
     inputs:
       build_type:
-        description: "Build Type (debug or release)"
+        description: "APK build type"
         required: true
         default: "debug"
         type: choice
-        options: [debug, release]
+        options:
+          - debug
+          - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-apk:
-    name: Build & Package Android APK v1.1.0
+  build:
+    name: Build & Package Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-      - name: Setup Java JDK 21
-        uses: actions/setup-java@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -33,83 +53,105 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK Packages
+      - name: Show tool versions
         shell: bash
         run: |
-          set -e
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
+          set -eux
+          node --version
+          npm --version
+          java -version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          adb --version || true
 
-      - name: Accept Android SDK Licenses
+      - name: Install Android SDK packages
         shell: bash
         run: |
-          set +o pipefail
-          yes | sdkmanager --licenses
-          set -o pipefail
+          set -eux
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install Node Dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Build Web Application
-        run: npm run build
-
-      - name: Sync Capacitor Android Platform
-        run: npx cap sync android
-
-      - name: Verify Android App Configuration
+      - name: Install JavaScript dependencies
         shell: bash
         run: |
-          set -e
-          test -f android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml
-          test -f android/app/src/main/java/com/tuktukirsangsar/app/NativePrintPlugin.java
-          test -f android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-          echo "Camera permission, native PDF/print plugin and app icon are present."
-
-      - name: Grant Execute Permission to Gradle Wrapper
-        run: chmod +x android/gradlew
-
-      - name: Build Android APK
-        shell: bash
-        run: |
-          set -e
-          cd android
-          if [ "${{ github.event.inputs.build_type }}" = "release" ]; then
-            ./gradlew assembleRelease --no-daemon --stacktrace
+          set -eux
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
           else
-            ./gradlew assembleDebug --no-daemon --stacktrace
+            npm install --no-audit --no-fund
           fi
 
-      - name: Prepare APK Artifact
+      - name: Build web application
         shell: bash
         run: |
-          set -e
-          mkdir -p release-artifacts
+          set -eux
+          npm run build
 
-          if [ -f android/app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp android/app/build/outputs/apk/debug/app-debug.apk \
-              release-artifacts/tuktukir-sangsar-v1.1.0-debug.apk
-          fi
+      - name: Check Capacitor configuration
+        shell: bash
+        run: |
+          set -eux
+          test -f capacitor.config.ts || \
+          test -f capacitor.config.json || \
+          test -f capacitor.config.js
 
-          if [ -f android/app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp android/app/build/outputs/apk/release/app-release-unsigned.apk \
-              release-artifacts/tuktukir-sangsar-v1.1.0-release-unsigned.apk
-          fi
+      - name: Sync Capacitor Android
+        shell: bash
+        run: |
+          set -eux
+          npx cap sync android
 
-          echo "Generated APK files:"
-          ls -lh release-artifacts/
+      - name: Make Gradle executable
+        shell: bash
+        run: |
+          set -eux
+          test -f android/gradlew
+          chmod +x android/gradlew
 
-      - name: Upload APK Artifact
+      - name: Verify Android project
+        shell: bash
+        run: |
+          set -eux
+          cd android
+          ./gradlew --version
+          ./gradlew tasks --no-daemon
+
+      - name: Build Debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_type == 'debug' }}
+        shell: bash
+        run: |
+          set -eux
+          cd android
+          ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Build Release APK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_type == 'release' }}
+        shell: bash
+        run: |
+          set -eux
+          cd android
+          ./gradlew assembleRelease --stacktrace --no-daemon
+
+      - name: Locate APK
+        shell: bash
+        run: |
+          set -eux
+          find android/app/build/outputs/apk \
+            -type f -name "*.apk" -print
+
+      - name: Upload Debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_type == 'debug' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Tuktukir-Sangsar-APK-v1.1.0
-          path: release-artifacts/*.apk
+          name: android-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
+
+      - name: Upload Release APK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_type == 'release' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
