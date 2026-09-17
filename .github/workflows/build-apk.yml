@@ -30,24 +30,13 @@ jobs:
           java-version: "21"
           cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK Packages
-        shell: bash
-        run: |
-          set -e
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
-
-      - name: Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses & Install Components
         shell: bash
         run: |
           set +o pipefail
-          yes | sdkmanager --licenses
+          yes | sdkmanager --licenses || true
           set -o pipefail
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
