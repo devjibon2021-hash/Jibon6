@@ -2,19 +2,15 @@ name: Build Android APK
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   workflow_dispatch:
     inputs:
       build_type:
-        description: "APK build type"
+        description: APK build type
         required: true
-        default: "debug"
+        default: debug
         type: choice
         options:
           - debug
@@ -31,27 +27,56 @@ jobs:
   build:
     name: Build & Package Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
 
-      - name: Setup Java JDK
+      - name: Setup Java JDK 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
           cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # Do NOT use android-actions/setup-android here.
+      # GitHub ubuntu-latest already contains the Android SDK.
+      - name: Configure preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+
+          echo "ANDROID_HOME=$SDK_ROOT"
+          test -d "$SDK_ROOT"
+
+          if [ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -x "$SDK_ROOT/cmdline-tools/*/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_ROOT/cmdline-tools/*/bin/sdkmanager"
+          else
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -perm -111 | head -n 1)"
+          fi
+
+          test -n "$SDKMANAGER"
+          echo "SDKMANAGER=$SDKMANAGER"
+
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+          "$SDKMANAGER" --version || true
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          "$SDKMANAGER" "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"
 
       - name: Show tool versions
         shell: bash
@@ -61,14 +86,10 @@ jobs:
           npm --version
           java -version
           echo "ANDROID_HOME=$ANDROID_HOME"
+          command -v adb || true
           adb --version || true
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -eux
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          command -v sdkmanager || true
+          sdkmanager --version || true
 
       - name: Install JavaScript dependencies
         shell: bash
@@ -90,9 +111,7 @@ jobs:
         shell: bash
         run: |
           set -eux
-          test -f capacitor.config.ts || \
-          test -f capacitor.config.json || \
-          test -f capacitor.config.js
+          test -f capacitor.config.ts ||           test -f capacitor.config.json ||           test -f capacitor.config.js
 
       - name: Sync Capacitor Android
         shell: bash
@@ -100,14 +119,14 @@ jobs:
           set -eux
           npx cap sync android
 
-      - name: Make Gradle executable
+      - name: Prepare Gradle
         shell: bash
         run: |
           set -eux
           test -f android/gradlew
           chmod +x android/gradlew
 
-      - name: Verify Android project
+      - name: Verify Gradle project
         shell: bash
         run: |
           set -eux
@@ -131,12 +150,11 @@ jobs:
           cd android
           ./gradlew assembleRelease --stacktrace --no-daemon
 
-      - name: Locate APK
+      - name: Show generated APK files
         shell: bash
         run: |
           set -eux
-          find android/app/build/outputs/apk \
-            -type f -name "*.apk" -print
+          find android/app/build/outputs/apk -type f -name "*.apk" -print
 
       - name: Upload Debug APK
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_type == 'debug' }}
