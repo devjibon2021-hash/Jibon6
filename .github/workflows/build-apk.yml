@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: APK build type
+        description: "APK build type"
         required: true
         default: debug
         type: choice
@@ -20,14 +20,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-build-${{ github.workflow }}-${{ github.ref }}
+  group: android-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     name: Build & Package Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -36,7 +36,7 @@ jobs:
       - name: Setup Node.js 22
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: "22"
           cache: npm
 
       - name: Setup Java JDK 21
@@ -46,90 +46,105 @@ jobs:
           java-version: "21"
           cache: gradle
 
-      # Do NOT use android-actions/setup-android here.
-      # GitHub ubuntu-latest already contains the Android SDK.
-      - name: Configure preinstalled Android SDK
+      - name: Configure Android SDK
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
-          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
 
-          echo "ANDROID_HOME=$SDK_ROOT"
           test -d "$SDK_ROOT"
 
-          if [ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          elif [ -x "$SDK_ROOT/cmdline-tools/*/bin/sdkmanager" ]; then
-            SDKMANAGER="$SDK_ROOT/cmdline-tools/*/bin/sdkmanager"
-          else
-            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -perm -111 | head -n 1)"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" \
+            -type f -name sdkmanager -perm -111 \
+            2>/dev/null | sort -V | tail -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found."
+            exit 1
           fi
 
-          test -n "$SDKMANAGER"
-          echo "SDKMANAGER=$SDKMANAGER"
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
 
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
 
-          "$SDKMANAGER" --version || true
-
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-
-          "$SDKMANAGER" "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"
-
-      - name: Show tool versions
+      - name: Verify Android SDK
         shell: bash
         run: |
-          set -eux
-          node --version
-          npm --version
-          java -version
+          set -euo pipefail
           echo "ANDROID_HOME=$ANDROID_HOME"
-          command -v adb || true
           adb --version || true
-          command -v sdkmanager || true
-          sdkmanager --version || true
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f -name sdkmanager -perm -111 \
+            2>/dev/null | sort -V | tail -n 1)"
+
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" --version
+          test -d "$ANDROID_HOME/platforms/android-36"
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
 
       - name: Install JavaScript dependencies
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
+
           if [ -f package-lock.json ]; then
             npm ci --no-audit --no-fund
-          else
+          elif [ -f package.json ]; then
             npm install --no-audit --no-fund
+          else
+            echo "ERROR: package.json was not found."
+            exit 1
           fi
 
       - name: Build web application
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
           npm run build
 
-      - name: Check Capacitor configuration
+      - name: Verify Capacitor project
         shell: bash
         run: |
-          set -eux
-          test -f capacitor.config.ts ||           test -f capacitor.config.json ||           test -f capacitor.config.js
+          set -euo pipefail
+
+          test -d android
+
+          if [ ! -f capacitor.config.ts ] && \
+             [ ! -f capacitor.config.json ] && \
+             [ ! -f capacitor.config.js ]; then
+            echo "ERROR: Capacitor config was not found."
+            exit 1
+          fi
 
       - name: Sync Capacitor Android
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
           npx cap sync android
 
-      - name: Prepare Gradle
+      - name: Prepare Gradle wrapper
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
           test -f android/gradlew
           chmod +x android/gradlew
 
-      - name: Verify Gradle project
+      - name: Verify Gradle and Android project
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
           cd android
           ./gradlew --version
           ./gradlew tasks --no-daemon
@@ -138,22 +153,22 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_type == 'debug' }}
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
           cd android
-          ./gradlew assembleDebug --stacktrace --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Build Release APK
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_type == 'release' }}
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
           cd android
-          ./gradlew assembleRelease --stacktrace --no-daemon
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
-      - name: Show generated APK files
+      - name: Find APK
         shell: bash
         run: |
-          set -eux
+          set -euo pipefail
           find android/app/build/outputs/apk -type f -name "*.apk" -print
 
       - name: Upload Debug APK
