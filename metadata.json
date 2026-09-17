@@ -1,0 +1,6 @@
+{
+  "name": "টুকটুকির সংসার",
+  "description": "টুকটুকির সংসার – পরিবারের দৈনন্দিন আয়, ব্যয়, সঞ্চয়, বাজেট, ধার-পাওনা এবং আর্থিক রিপোর্ট ব্যবস্থাপনার প্রফেশনাল অ্যাপ্লিকেশন।",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "টুকটুকির সংসার – Family Finance",
+  "short_name": "টুকটুকির সংসার",
+  "description": "টুকটুকির সংসার – পরিবারের দৈনন্দিন আয়, ব্যয়, সঞ্চয়, বাজেট, ধার-পাওনা এবং আর্থিক রিপোর্ট ব্যবস্থাপনা।",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

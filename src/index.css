@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-bengali: 'Hind Siliguri', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  html {
+    font-family: var(--font-bengali);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Print Styles for Professional A4 Reports */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide everything except print target */
+  .no-print,
+  nav,
+  header,
+  aside,
+  button,
+  .btn,
+  .toast-container,
+  .modal-backdrop,
+  .mobile-nav-bar,
+  .action-buttons {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .printable-area {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .break-inside-avoid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  th, td {
+    border: 1px solid #d1d5db !important;
+    padding: 6px 10px !important;
+  }
+}
+
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
+}

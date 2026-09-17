@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">টুকটুকির সংসার</string>
+    <string name="title_activity_main">টুকটুকির সংসার</string>
+    <string name="package_name">com.tuktukirsangsar.app</string>
+    <string name="custom_url_scheme">com.tuktukirsangsar.app</string>
+</resources>
