@@ -1,0 +1,30 @@
+{
+  "name": "টুকটুকির সংসার – Family Finance",
+  "app_id": "com.tuktukirsangsar.app",
+  "version": "1.2.0",
+  "author": "devjibon2021@gmail.com",
+  "shared_app_url": "https://ais-pre-3canktu22lbz7qy3igjdyu-568031923881.europe-west2.run.app",
+  "development_app_url": "https://ais-dev-3canktu22lbz7qy3igjdyu-568031923881.europe-west2.run.app",
+  "pwa_manifest": "/manifest.json",
+  "android_apk": {
+    "type": "Capacitor Native Android & GitHub Actions CI/CD APK",
+    "install_method": "Download .apk from GitHub Actions Artifacts or open shared_app_url in Chrome to install",
+    "github_workflow": ".github/workflows/build-apk.yml",
+    "package_builder_url": "https://www.pwabuilder.com?url=https://ais-pre-3canktu22lbz7qy3igjdyu-568031923881.europe-west2.run.app",
+    "app_icon": {
+      "path": "/icon-512.png",
+      "branding": "টুকটুকির সংসার (Family, Home & Finance)",
+      "sizes": ["192x192", "512x512", "any"]
+    },
+    "features": [
+      "Camera receipt scanning (বাজারের রশিদের ছবি তোলা ও সংরক্ষণ)",
+      "Offline persistence with IndexedDB",
+      "Full Bangla & English localization",
+      "Printable A4 monthly finance reports",
+      "Family member individual contribution tracking",
+      "Category budgets with 80% & 100% threshold alerts",
+      "Debt & loan tracker (ধার-দেনা খাতা)"
+    ]
+  },
+  "created_at": "2026-08-28T13:53:06-07:00"
+}
