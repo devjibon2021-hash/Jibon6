@@ -3,15 +3,15 @@ package com.tuktukirsangsar.app;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.pdf.PdfDocument;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Bundle;
-import android.os.CancellationSignal;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
-import android.print.PrintDocumentInfo;
 import android.print.PrintManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -24,7 +24,10 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.util.regex.Pattern;
 
 @CapacitorPlugin(name = "NativePrint")
 public class NativePrintPlugin extends Plugin {
@@ -39,7 +42,7 @@ public class NativePrintPlugin extends Plugin {
             call.reject("No report content supplied");
             return;
         }
-
+        final String finalJobName = jobName;
         getActivity().runOnUiThread(() -> {
             printWebView = createPrintWebView();
             printWebView.setWebViewClient(new WebViewClient() {
@@ -50,12 +53,12 @@ public class NativePrintPlugin extends Plugin {
                         call.reject("Android print service is unavailable");
                         return;
                     }
-                    PrintDocumentAdapter adapter = view.createPrintDocumentAdapter(jobName);
+                    PrintDocumentAdapter adapter = view.createPrintDocumentAdapter(finalJobName);
                     PrintAttributes attributes = new PrintAttributes.Builder()
                             .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
                             .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
                             .build();
-                    printManager.print(jobName, adapter, attributes);
+                    printManager.print(finalJobName, adapter, attributes);
                     call.resolve();
                 }
             });
@@ -72,19 +75,9 @@ public class NativePrintPlugin extends Plugin {
             call.reject("No report content supplied");
             return;
         }
-        fileName = sanitizePdfName(fileName);
-        final String finalFileName = fileName;
-
-        getActivity().runOnUiThread(() -> {
-            WebView webView = createPrintWebView();
-            webView.setWebViewClient(new WebViewClient() {
-                @Override
-                public void onPageFinished(WebView view, String url) {
-                    writePdf(view, finalFileName, call);
-                }
-            });
-            webView.loadDataWithBaseURL("https://localhost/", html, "text/html", "UTF-8", null);
-        });
+        final String finalFileName = sanitizePdfName(fileName);
+        final String text = htmlToText(html);
+        getActivity().runOnUiThread(() -> writePdf(finalFileName, text, call));
     }
 
     private WebView createPrintWebView() {
@@ -99,66 +92,67 @@ public class NativePrintPlugin extends Plugin {
         return webView;
     }
 
-    private void writePdf(WebView webView, String fileName, PluginCall call) {
-        PrintDocumentAdapter adapter = webView.createPrintDocumentAdapter(fileName.replace(".pdf", ""));
-        PrintAttributes attributes = new PrintAttributes.Builder()
-                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-                .setResolution(new PrintAttributes.Resolution("pdf", "PDF", 300, 300))
-                .build();
-
-        final Uri[] outputUri = new Uri[1];
-        final ParcelFileHolder[] holder = new ParcelFileHolder[1];
+    /** Creates a PDF directly. PrintDocumentAdapter callbacks have package-private
+     * constructors on recent Android SDKs, so they cannot be instantiated here. */
+    private void writePdf(String fileName, String text, PluginCall call) {
+        Uri outputUri = null;
+        ParcelFileHolder holder = null;
+        PdfDocument document = new PdfDocument();
         try {
-            outputUri[0] = createOutputUri(fileName);
-            holder[0] = new ParcelFileHolder(openOutputDescriptor(outputUri[0]));
-            if (holder[0].descriptor == null) throw new IOException("Could not open PDF destination");
+            outputUri = createOutputUri(fileName);
+            holder = new ParcelFileHolder(openOutputDescriptor(outputUri));
+            if (holder.descriptor == null) throw new IOException("Could not open PDF destination");
 
-            CancellationSignal cancellationSignal = new CancellationSignal();
-            adapter.onLayout(null, attributes, cancellationSignal, new PrintDocumentAdapter.LayoutResultCallback() {
-                @Override
-                public void onLayoutFinished(PrintDocumentInfo info, boolean changed) {
-                    adapter.onWrite(
-                            new android.print.PageRange[]{android.print.PageRange.ALL_PAGES},
-                            holder[0].descriptor,
-                            cancellationSignal,
-                            new PrintDocumentAdapter.WriteResultCallback() {
-                                @Override
-                                public void onWriteFinished(android.print.PageRange[] pages) {
-                                    finishPdfSuccess(outputUri[0], fileName, call, holder[0]);
-                                    webView.destroy();
-                                }
-
-                                @Override
-                                public void onWriteFailed(CharSequence error) {
-                                    finishPdfFailure(outputUri[0], error == null ? "PDF generation failed" : error.toString(), call, holder[0]);
-                                    webView.destroy();
-                                }
-                            }
-                    );
+            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(android.graphics.Color.BLACK);
+            paint.setTextSize(11f);
+            int pageWidth = 595;
+            int pageHeight = 842;
+            int margin = 40;
+            int lineHeight = 16;
+            int linesPerPage = (pageHeight - margin * 2) / lineHeight;
+            String[] lines = text.split("\\n", -1);
+            int index = 0;
+            while (index < lines.length || index == 0) {
+                PdfDocument.Page page = document.startPage(new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, document.getPages().size() + 1).create());
+                Canvas canvas = page.getCanvas();
+                float y = margin + lineHeight;
+                int count = 0;
+                while (index < lines.length && count < linesPerPage) {
+                    String line = lines[index++];
+                    if (line.length() > 90) line = line.substring(0, 90);
+                    canvas.drawText(line, margin, y, paint);
+                    y += lineHeight;
+                    count++;
                 }
-
-                @Override
-                public void onLayoutFailed(CharSequence error) {
-                    finishPdfFailure(outputUri[0], error == null ? "PDF layout failed" : error.toString(), call, holder[0]);
-                    webView.destroy();
-                }
-            }, new Bundle());
+                document.finishPage(page);
+            }
+            document.writeTo(new FileOutputStream(holder.descriptor.getFileDescriptor()));
+            document.close();
+            finishPdfSuccess(outputUri, fileName, call, holder);
         } catch (Exception e) {
-            if (holder[0] != null) holder[0].close();
-            deleteUri(outputUri[0]);
-            call.reject("Unable to create PDF: " + e.getMessage());
-            webView.destroy();
+            document.close();
+            if (holder != null) holder.close();
+            deleteUri(outputUri);
+            call.reject("Unable to create PDF: " + (e.getMessage() == null ? "unknown error" : e.getMessage()));
         }
     }
 
+    private String htmlToText(String html) {
+        String text = html.replaceAll("(?i)<br\\s*/?>", "\\n")
+                .replaceAll("(?i)</(p|div|h[1-6]|tr|li)>", "\\n")
+                .replaceAll("<[^>]*>", "")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">");
+        return Pattern.compile("\\n{3,}").matcher(text).replaceAll("\\n\\n").trim();
+    }
 
     private android.os.ParcelFileDescriptor openOutputDescriptor(Uri uri) throws IOException {
         if ("file".equals(uri.getScheme())) {
-            return android.os.ParcelFileDescriptor.open(
-                    new File(uri.getPath()),
-                    android.os.ParcelFileDescriptor.MODE_CREATE | android.os.ParcelFileDescriptor.MODE_TRUNCATE | android.os.ParcelFileDescriptor.MODE_WRITE_ONLY
-            );
+            return android.os.ParcelFileDescriptor.open(new File(uri.getPath()),
+                    android.os.ParcelFileDescriptor.MODE_CREATE | android.os.ParcelFileDescriptor.MODE_TRUNCATE | android.os.ParcelFileDescriptor.MODE_WRITE_ONLY);
         }
         return getActivity().getContentResolver().openFileDescriptor(uri, "w");
     }
@@ -175,7 +169,6 @@ public class NativePrintPlugin extends Plugin {
             if (uri == null) throw new IOException("Downloads folder is unavailable");
             return uri;
         }
-
         File dir = getActivity().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
         if (dir == null) dir = getActivity().getCacheDir();
         if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create document folder");
@@ -195,21 +188,11 @@ public class NativePrintPlugin extends Plugin {
         call.resolve(result);
     }
 
-    private void finishPdfFailure(Uri uri, String error, PluginCall call, ParcelFileHolder holder) {
-        holder.close();
-        deleteUri(uri);
-        call.reject(error);
-    }
-
     private void deleteUri(Uri uri) {
         if (uri == null) return;
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || "content".equals(uri.getScheme())) {
-                getActivity().getContentResolver().delete(uri, null, null);
-            } else if ("file".equals(uri.getScheme())) {
-                File file = new File(uri.getPath());
-                if (file.exists()) file.delete();
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || "content".equals(uri.getScheme())) getActivity().getContentResolver().delete(uri, null, null);
+            else if ("file".equals(uri.getScheme())) new File(uri.getPath()).delete();
         } catch (Exception ignored) {}
     }
 
