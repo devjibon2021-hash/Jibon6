@@ -30,13 +30,26 @@ jobs:
           java-version: "21"
           cache: gradle
 
-      - name: Accept Android SDK Licenses & Install Components
+      - name: Setup Android SDK & Accept Licenses
         shell: bash
         run: |
-          set +o pipefail
-          yes | sdkmanager --licenses || true
-          set -o pipefail
-          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          SDKMANAGER=""
+          if command -v sdkmanager &> /dev/null; then
+            SDKMANAGER="sdkmanager"
+          elif [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -f "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          elif [ -d "$ANDROID_HOME/cmdline-tools" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager | head -n 1)
+          fi
+
+          if [ -n "$SDKMANAGER" ]; then
+            echo "Using sdkmanager at $SDKMANAGER"
+            yes | "$SDKMANAGER" --licenses || true
+          else
+            echo "sdkmanager not found, skipping license auto-accept"
+          fi
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
